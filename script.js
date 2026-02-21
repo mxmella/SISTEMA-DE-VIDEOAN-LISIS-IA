@@ -416,8 +416,6 @@ async function detectStaticImage(imgElement) {
 }
 
 function toggleVoice() {
-    isVoiceEnabled = !isVoiceEnabled; // Invertir estado
-    if (isVoiceEnabled) {
     isObjectListVoiceEnabled = !isObjectListVoiceEnabled; // Invertir estado
     if (isObjectListVoiceEnabled) {
         // Activar voz
@@ -425,7 +423,6 @@ function toggleVoice() {
         btnToggleVoice.classList.add('bg-green-600', 'hover:bg-green-500');
         iconVoiceOn.classList.remove('hidden');
         iconVoiceOff.classList.add('hidden');
-        log('Voz activada.', 'INFO');
         log('Voz de objetos activada.', 'INFO');
     } else {
         // Desactivar voz
@@ -434,7 +431,6 @@ function toggleVoice() {
         iconVoiceOn.classList.add('hidden');
         iconVoiceOff.classList.remove('hidden');
         window.speechSynthesis.cancel(); // Detener cualquier locución en curso
-        log('Voz desactivada.', 'WARN');
         log('Voz de objetos desactivada. Las alertas de peligro seguirán sonando.', 'WARN');
     }
 }
