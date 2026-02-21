@@ -18,12 +18,15 @@ const filterCheckboxes = document.getElementById('filter-checkboxes');
 const btnToggleRoi = document.getElementById('btn-toggle-roi');
 const confidenceSlider = document.getElementById('confidence-slider');
 const confidenceValue = document.getElementById('confidence-value');
+const resolutionSelect = document.getElementById('resolution-select'); // Nuevo selector
 const roiOverlay = document.getElementById('roi-overlay');
 const loadingOverlay = document.getElementById('loading-overlay'); // Referencia a la pantalla de carga
 const roiBox = document.getElementById('roi-box'); // Referencia actualizada por ID
 const roiResize = document.getElementById('roi-resize'); // Nuevo manejador de resize
 const iconVoiceOn = document.getElementById('icon-voice-on');
 const iconVoiceOff = document.getElementById('icon-voice-off');
+const statusDot = document.getElementById('status-dot'); // Nuevo indicador
+const statusText = document.getElementById('status-text'); // Nuevo texto estado
 let stream = null; // Variable para guardar el stream de video
 let objectDetector = null; // Modelo COCO-SSD
 let isDetecting = false;
@@ -36,6 +39,7 @@ let currentFacingMode = 'environment'; // 'environment' (trasera) o 'user' (fron
 let activeFilters = new Set(); // Set para los filtros de objetos activos
 const commonObjects = ['person', 'car', 'cell phone', 'laptop', 'bottle', 'cup', 'chair', 'dog', 'cat', 'book']; // Objetos comunes para filtrar
 let minConfidence = 0.6; // Umbral de confianza inicial (60%)
+let currentResolution = 'medium'; // Resolución por defecto
 // Variables para Drag & Resize
 let isDraggingRoi = false;
 let isResizingRoi = false;
@@ -86,6 +90,16 @@ if (confidenceSlider) {
         if (confidenceValue) confidenceValue.innerText = val + '%';
     });
 }
+if (resolutionSelect) {
+    resolutionSelect.addEventListener('change', async (e) => {
+        currentResolution = e.target.value;
+        log(`Resolución cambiada a: ${currentResolution.toUpperCase()}`, 'INFO');
+        if (stream) {
+            stopCamera();
+            await initCamera();
+        }
+    });
+}
 
 // --- Lógica de Cámara en Vivo (GetUserMedia) ---
 async function handleCameraAction() {
@@ -113,13 +127,29 @@ async function initCamera() {
             // Asegurar que el canvas coincida con el modo del video (cover)
             detectionCanvas.classList.remove('object-contain');
             detectionCanvas.classList.add('object-cover');
+            
+            // Configurar efecto espejo si es cámara frontal
+            if (currentFacingMode === 'user') {
+                videoFeed.style.transform = 'scaleX(-1)';
+            } else {
+                videoFeed.style.transform = 'none';
+            }
+
             isDetecting = true;
+            updateSystemStatus(true); // Actualizar indicador a ONLINE
             lastFrameTime = 0; // Resetear contador al iniciar
             predictFrame(); // Iniciar bucle de detección
         };
 
+        const constraints = {
+            video: {
+                facingMode: currentFacingMode,
+                ...getResolutionConstraints(currentResolution)
+            }
+        };
+
         stream = await navigator.mediaDevices.getUserMedia({ 
-            video: { facingMode: currentFacingMode } // Usa la cámara seleccionada
+            video: constraints.video
         });
         videoFeed.srcObject = stream;
         videoFeed.classList.remove('hidden');
@@ -135,6 +165,15 @@ async function initCamera() {
     }
 }
 
+function getResolutionConstraints(quality) {
+    switch(quality) {
+        case 'low': return { width: { ideal: 640 }, height: { ideal: 480 } };
+        case 'high': return { width: { ideal: 1920 }, height: { ideal: 1080 } };
+        case 'medium': 
+        default: return { width: { ideal: 1280 }, height: { ideal: 720 } };
+    }
+}
+
 function stopCamera() {
     if (stream) {
         stream.getTracks().forEach(track => track.stop());
@@ -143,6 +182,7 @@ function stopCamera() {
     videoFeed.classList.add('hidden');
     btnCameraText.innerText = "INICIAR SISTEMA";
     isDetecting = false;
+    updateSystemStatus(false); // Actualizar indicador a OFFLINE
     ctx.clearRect(0, 0, detectionCanvas.width, detectionCanvas.height);
     log('Sistema detenido.', 'INFO');
 }
@@ -224,11 +264,16 @@ async function predictFrame() {
         const roiScreenY = boxRect.top - containerRect.top;
         
         // Convertir coordenadas de Pantalla a Video
-        const roiVideoX = (roiScreenX - offsetX) * scaleFactor;
+        let roiVideoX = (roiScreenX - offsetX) * scaleFactor;
         const roiVideoY = (roiScreenY - offsetY) * scaleFactor;
         const roiVideoW = boxRect.width * scaleFactor;
         const roiVideoH = boxRect.height * scaleFactor;
         
+        // Ajuste para modo espejo (Cámara frontal)
+        if (currentFacingMode === 'user') {
+            roiVideoX = vw - (roiVideoX + roiVideoW);
+        }
+
         roiBounds = { x: roiVideoX, y: roiVideoY, w: roiVideoW, h: roiVideoH };
         
         // Calcular centro y radio promedio para lógica de proximidad
@@ -247,10 +292,15 @@ async function predictFrame() {
 
     // 3. Dibujar resultados
     predictions.forEach(prediction => {
-        const x = prediction.bbox[0];
+        let x = prediction.bbox[0];
         const y = prediction.bbox[1];
         const width = prediction.bbox[2];
         const height = prediction.bbox[3];
+
+        // Ajuste para modo espejo (Cámara frontal)
+        if (currentFacingMode === 'user') {
+            x = detectionCanvas.width - x - width;
+        }
 
         // Generar color dinámico basado en la clase del objeto
         let color = getColorForClass(prediction.class);
@@ -481,6 +531,21 @@ function toggleRoi() {
         btnToggleRoi.classList.add('bg-red-900/40', 'text-red-200', 'border-red-800/50');
         btnToggleRoi.classList.remove('bg-red-600', 'text-white', 'border-red-500', 'shadow-[0_0_15px_rgba(220,38,38,0.5)]');
         log('Zona de peligro oculta.', 'INFO');
+    }
+}
+
+// --- Actualización de Indicador de Estado ---
+function updateSystemStatus(isActive) {
+    if (isActive) {
+        statusDot.classList.replace('bg-red-500', 'bg-green-500');
+        statusDot.classList.add('animate-pulse');
+        statusText.innerText = "ONLINE";
+        statusText.classList.replace('text-red-400', 'text-green-400');
+    } else {
+        statusDot.classList.replace('bg-green-500', 'bg-red-500');
+        statusDot.classList.remove('animate-pulse');
+        statusText.innerText = "OFFLINE";
+        statusText.classList.replace('text-green-400', 'text-red-400');
     }
 }
 

@@ -46,6 +46,12 @@
         <!-- AREA DE VISUALIZACIÓN -->
         <div class="bg-slate-800 rounded-lg border-2 border-slate-700 shadow-2xl overflow-hidden mb-6 relative group">
             <div id="preview-container" class="scan-container h-96 md:h-[600px] bg-black flex items-center justify-center relative">
+                <!-- Indicador de Estado del Sistema -->
+                <div class="absolute top-3 right-3 flex items-center gap-2 z-20 bg-slate-900/80 px-3 py-1.5 rounded-full border border-slate-700 backdrop-blur-sm">
+                    <div id="status-dot" class="w-2.5 h-2.5 rounded-full bg-red-500 shadow-[0_0_8px_rgba(239,68,68,0.6)] transition-all duration-300"></div>
+                    <span id="status-text" class="text-[10px] font-mono font-bold text-red-400 tracking-widest">OFFLINE</span>
+                </div>
+
                 <div id="laser" class="laser-line"></div>
                 <!-- Elemento de video para el stream de la cámara -->
                 <video id="video-feed" class="absolute inset-0 w-full h-full object-cover hidden" autoplay playsinline></video>
@@ -115,11 +121,22 @@
                     </div>
                 </div>
 
-                <!-- AJUSTES DE SENSIBILIDAD -->
-                <div class="flex items-center gap-4 bg-slate-800 p-3 rounded border border-slate-700">
-                    <span class="text-slate-400 text-xs font-bold uppercase whitespace-nowrap">Sensibilidad IA:</span>
-                    <input type="range" id="confidence-slider" min="10" max="100" value="60" class="w-full h-2 bg-slate-700 rounded-lg appearance-none cursor-pointer accent-cyan-500">
-                    <span id="confidence-value" class="text-cyan-400 text-xs font-mono font-bold w-10 text-right">60%</span>
+                <!-- AJUSTES DE SENSIBILIDAD Y RESOLUCIÓN -->
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div class="flex items-center gap-4 bg-slate-800 p-3 rounded border border-slate-700">
+                        <span class="text-slate-400 text-xs font-bold uppercase whitespace-nowrap">Sensibilidad IA:</span>
+                        <input type="range" id="confidence-slider" min="10" max="100" value="60" class="w-full h-2 bg-slate-700 rounded-lg appearance-none cursor-pointer accent-cyan-500">
+                        <span id="confidence-value" class="text-cyan-400 text-xs font-mono font-bold w-10 text-right">60%</span>
+                    </div>
+                    
+                    <div class="flex items-center gap-4 bg-slate-800 p-3 rounded border border-slate-700">
+                        <span class="text-slate-400 text-xs font-bold uppercase whitespace-nowrap">Calidad Video:</span>
+                        <select id="resolution-select" class="bg-slate-700 text-cyan-400 text-xs font-bold rounded p-1 border-none focus:ring-2 focus:ring-cyan-500 outline-none w-full cursor-pointer">
+                            <option value="low">BAJA (Rápida)</option>
+                            <option value="medium" selected>MEDIA (Balance)</option>
+                            <option value="high">ALTA (Detalle)</option>
+                        </select>
+                    </div>
                 </div>
             </div>
         </div>
