@@ -8,13 +8,18 @@ const ctx = detectionCanvas.getContext('2d');
 const placeholderText = document.getElementById('placeholder-text');
 const consoleLog = document.getElementById('console-log');
 const resultsArea = document.getElementById('results-area');
-const historyContainer = document.getElementById('history-container');
 const btnCamera = document.getElementById('btn-camera'); // Nuevo
 const btnCameraText = document.getElementById('btn-camera-text'); // Nuevo
 const btnSwitchCamera = document.getElementById('btn-switch-camera'); // Nuevo botón switch
 const btnToggleVoice = document.getElementById('btn-toggle-voice');
+const btnToggleFilters = document.getElementById('btn-toggle-filters');
+const filterPanel = document.getElementById('filter-panel');
+const filterCheckboxes = document.getElementById('filter-checkboxes');
 const btnToggleRoi = document.getElementById('btn-toggle-roi');
+const confidenceSlider = document.getElementById('confidence-slider');
+const confidenceValue = document.getElementById('confidence-value');
 const roiOverlay = document.getElementById('roi-overlay');
+const loadingOverlay = document.getElementById('loading-overlay'); // Referencia a la pantalla de carga
 const roiBox = document.getElementById('roi-box'); // Referencia actualizada por ID
 const roiResize = document.getElementById('roi-resize'); // Nuevo manejador de resize
 const iconVoiceOn = document.getElementById('icon-voice-on');
@@ -28,6 +33,9 @@ let lastSpeechTime = 0; // Control de voz: tiempo de última locución
 let isObjectListVoiceEnabled = true; // Voz para lista de objetos activada por defecto
 let isRoiActive = false; // Estado de la Zona de Peligro
 let currentFacingMode = 'environment'; // 'environment' (trasera) o 'user' (frontal)
+let activeFilters = new Set(); // Set para los filtros de objetos activos
+const commonObjects = ['person', 'car', 'cell phone', 'laptop', 'bottle', 'cup', 'chair', 'dog', 'cat', 'book']; // Objetos comunes para filtrar
+let minConfidence = 0.6; // Umbral de confianza inicial (60%)
 // Variables para Drag & Resize
 let isDraggingRoi = false;
 let isResizingRoi = false;
@@ -36,8 +44,8 @@ let initialRoiLeft, initialRoiTop, initialRoiW, initialRoiH;
 
 // --- Inicialización ---
 document.addEventListener('DOMContentLoaded', async () => {
-    loadHistory();
     setupRoiInteractions(); // Inicializar eventos de ROI
+    populateFilterCheckboxes();
     await loadModel();
 });
 
@@ -46,8 +54,19 @@ async function loadModel() {
     try {
         objectDetector = await cocoSsd.load();
         log('Modelo cargado. Sistema listo para detectar.', 'SUCCESS');
+        // Ocultar pantalla de carga cuando el modelo esté listo
+        loadingOverlay.classList.add('opacity-0', 'pointer-events-none');
+        setTimeout(() => loadingOverlay.classList.add('hidden'), 500);
     } catch (err) {
         log('Error cargando modelo: ' + err.message, 'ERROR');
+        // Mostrar error en la pantalla de carga si falla
+        const loadingText = loadingOverlay.querySelector('h2');
+        const loadingSub = loadingOverlay.querySelector('p');
+        if(loadingText) {
+            loadingText.innerText = "ERROR DE CARGA";
+            loadingText.classList.replace('text-cyan-400', 'text-red-500');
+        }
+        if(loadingSub) loadingSub.innerText = "Verifique su conexión y recargue.";
     }
 }
 
@@ -58,6 +77,15 @@ btnCamera.addEventListener('click', handleCameraAction); // Nuevo listener
 btnSwitchCamera.addEventListener('click', switchCamera); // Listener para cambiar cámara
 btnToggleVoice.addEventListener('click', toggleVoice);
 btnToggleRoi.addEventListener('click', toggleRoi);
+btnToggleFilters.addEventListener('click', toggleFilterPanel);
+filterCheckboxes.addEventListener('change', updateActiveFilters);
+if (confidenceSlider) {
+    confidenceSlider.addEventListener('input', (e) => {
+        const val = e.target.value;
+        minConfidence = val / 100;
+        if (confidenceValue) confidenceValue.innerText = val + '%';
+    });
+}
 
 // --- Lógica de Cámara en Vivo (GetUserMedia) ---
 async function handleCameraAction() {
@@ -140,7 +168,16 @@ async function predictFrame() {
     lastFrameTime = now;
 
     // 1. Detectar objetos en el cuadro actual de video
-    const predictions = await objectDetector.detect(videoFeed);
+    const predictionsRaw = await objectDetector.detect(videoFeed);
+    
+    // Aplicar filtros de confianza y de clase
+    const predictions = predictionsRaw.filter(p => {
+        const scoreMatch = p.score >= minConfidence;
+        // Si no hay filtros activos, solo se comprueba la confianza.
+        // Si hay filtros, se comprueba la confianza Y si la clase está en el Set.
+        const classMatch = activeFilters.size === 0 ? true : activeFilters.has(p.class);
+        return scoreMatch && classMatch;
+    });
     
     // 2. Limpiar canvas anterior
     ctx.clearRect(0, 0, detectionCanvas.width, detectionCanvas.height);
@@ -366,7 +403,13 @@ async function detectStaticImage(imgElement) {
         await new Promise(resolve => imgElement.onload = resolve);
     }
 
-    const predictions = await objectDetector.detect(imgElement);
+    const predictionsRaw = await objectDetector.detect(imgElement);
+    // Aplicar filtros de confianza y de clase
+    const predictions = predictionsRaw.filter(p => {
+        const scoreMatch = p.score >= minConfidence;
+        const classMatch = activeFilters.size === 0 ? true : activeFilters.has(p.class);
+        return scoreMatch && classMatch;
+    });
     
     // Ajustar canvas a la imagen y cambiar modo CSS para alineación perfecta
     detectionCanvas.width = imgElement.naturalWidth;
@@ -401,18 +444,6 @@ async function detectStaticImage(imgElement) {
 
     updateResultsUI(predictions);
     log(`Detección completada. ${predictions.length} objetos encontrados.`, 'SUCCESS');
-
-    // Guardar en historial si hay detecciones
-    if (predictions.length > 0) {
-        const timestamp = new Date().toLocaleString();
-        const uniquePredictions = [];
-        const seen = new Set();
-        predictions.forEach(p => {
-            if (!seen.has(p.class)) { seen.add(p.class); uniquePredictions.push(p); }
-        });
-        const findings = uniquePredictions.map(p => ({ type: 'DETECTADO', value: translate(p.class) }));
-    saveScanToStorage(findings, timestamp);
-    }
 }
 
 function toggleVoice() {
@@ -450,6 +481,45 @@ function toggleRoi() {
         btnToggleRoi.classList.add('bg-red-900/40', 'text-red-200', 'border-red-800/50');
         btnToggleRoi.classList.remove('bg-red-600', 'text-white', 'border-red-500', 'shadow-[0_0_15px_rgba(220,38,38,0.5)]');
         log('Zona de peligro oculta.', 'INFO');
+    }
+}
+
+// --- Lógica de Filtros ---
+function populateFilterCheckboxes() {
+    if (!filterCheckboxes) return;
+    filterCheckboxes.innerHTML = '';
+    commonObjects.forEach(objectClass => {
+        const color = getColorForClass(objectClass);
+        const translated = translate(objectClass);
+        const label = document.createElement('label');
+        label.className = 'flex items-center gap-2 cursor-pointer text-slate-300 hover:text-white';
+        label.innerHTML = `
+            <input type="checkbox" value="${objectClass}" class="h-4 w-4 rounded border-slate-600 bg-slate-700 cursor-pointer accent-cyan-500 focus:ring-cyan-600">
+            <span class="capitalize font-bold" style="color: ${color};">${translated}</span>
+        `;
+        filterCheckboxes.appendChild(label);
+    });
+}
+
+function toggleFilterPanel() {
+    filterPanel.classList.toggle('hidden');
+    if (filterPanel.classList.contains('hidden')) {
+        btnToggleFilters.classList.remove('bg-cyan-600');
+        btnToggleFilters.classList.add('bg-slate-700');
+    } else {
+        btnToggleFilters.classList.remove('bg-slate-700');
+        btnToggleFilters.classList.add('bg-cyan-600');
+    }
+}
+
+function updateActiveFilters(e) {
+    if (e.target.type === 'checkbox') {
+        if (e.target.checked) {
+            activeFilters.add(e.target.value);
+        } else {
+            activeFilters.delete(e.target.value);
+        }
+        log(`Filtros activos: ${activeFilters.size > 0 ? [...activeFilters].map(translate).join(', ') : 'Ninguno'}`, 'INFO');
     }
 }
 
@@ -579,40 +649,6 @@ function updateResultsUI(predictions, dangerDetected = false) {
             <h4 class="font-bold uppercase tracking-wider" style="color: ${color}">DETECTADO: ${translatedText}</h4>
         `;
         resultsArea.appendChild(div);
-    });
-}
-
-// --- Persistencia (LocalStorage) ---
-function saveScanToStorage(findings, timestamp) {
-    const scan = { id: Date.now(), date: timestamp, data: findings };
-    let history = JSON.parse(localStorage.getItem('scanHistory') || '[]');
-    history.unshift(scan); // Agregar al inicio
-    if (history.length > 10) history.pop(); // Mantener solo los últimos 10
-    localStorage.setItem('scanHistory', JSON.stringify(history));
-    loadHistory();
-}
-
-function loadHistory() {
-    const history = JSON.parse(localStorage.getItem('scanHistory') || '[]');
-    historyContainer.innerHTML = '';
-
-    if (history.length === 0) {
-        historyContainer.innerHTML = '<p class="text-xs text-slate-600 italic">Sin historial reciente.</p>';
-        return;
-    }
-
-    history.forEach(scan => {
-        const itemDiv = document.createElement('div');
-        itemDiv.className = 'bg-slate-900 p-2 rounded border border-slate-800 text-xs flex justify-between items-center';
-        
-        // Resumen corto de lo encontrado
-        const summary = scan.data.map(d => d.value).join(', ');
-        
-        itemDiv.innerHTML = `
-            <span class="text-cyan-600 font-mono">${scan.date.split(' ')[1]}</span>
-            <span class="text-slate-300 truncate ml-2 flex-1">${summary}</span>
-        `;
-        historyContainer.appendChild(itemDiv);
     });
 }
 
