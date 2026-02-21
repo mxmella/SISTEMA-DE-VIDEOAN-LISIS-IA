@@ -1,0 +1,129 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Plataforma de Seguridad IA</title>
+    
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    
+    <!-- TensorFlow.js (Motor de IA para YOLO) -->
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@latest/dist/tf.min.js"></script>
+    <!-- COCO-SSD (Modelo de Detección de Objetos) -->
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/coco-ssd"></script>
+
+    <!-- Configuración de Estilos e Iconos -->
+    <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;700&family=Roboto:wght@400;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body class="min-h-screen flex flex-col">
+
+    <!-- HEADER -->
+    <header class="bg-slate-950 border-b border-cyan-900 p-4 shadow-lg sticky top-0 z-50">
+        <div class="container mx-auto flex justify-between items-center">
+            <div>
+                <h1 class="text-cyan-400 font-bold text-xl tracking-wider">SISTEMA DE VIDEOANÁLISIS IA</h1>
+                <span class="text-xs text-slate-400 font-mono">SYSTEM READY</span>
+            </div>
+            <div class="h-3 w-3 bg-green-500 rounded-full animate-pulse shadow-[0_0_10px_#22c55e]"></div>
+        </div>
+    </header>
+
+    <!-- MAIN CONTENT -->
+    <main class="flex-grow container mx-auto p-4 max-w-2xl md:max-w-6xl">
+        
+        <!-- AREA DE VISUALIZACIÓN -->
+        <div class="bg-slate-800 rounded-lg border-2 border-slate-700 shadow-2xl overflow-hidden mb-6 relative group">
+            <div id="preview-container" class="scan-container h-96 md:h-[600px] bg-black flex items-center justify-center relative">
+                <div id="laser" class="laser-line"></div>
+                <!-- Elemento de video para el stream de la cámara -->
+                <video id="video-feed" class="absolute inset-0 w-full h-full object-cover hidden" autoplay playsinline></video>
+                <canvas id="detection-canvas" class="absolute inset-0 w-full h-full object-cover pointer-events-none"></canvas>
+                
+                <!-- ROI (Region of Interest) - Zona de Peligro -->
+                <div id="roi-overlay" class="absolute inset-0 hidden z-10 pointer-events-none overflow-hidden">
+                    <div id="roi-box" class="absolute border-2 border-red-500 bg-red-500/10 shadow-[0_0_20px_rgba(239,68,68,0.3)] pointer-events-auto cursor-move touch-none" style="width: 200px; height: 200px; top: 50%; left: 50%; transform: translate(-50%, -50%);">
+                        <div class="absolute -top-5 left-0 bg-red-600 text-white text-[10px] px-2 py-0.5 rounded font-bold tracking-wider pointer-events-none whitespace-nowrap">ZONA PELIGRO</div>
+                        <!-- Resize Handle -->
+                        <div id="roi-resize" class="absolute bottom-0 right-0 w-8 h-8 bg-red-500/50 hover:bg-red-500 cursor-se-resize rounded-tl-lg flex items-center justify-center pointer-events-auto">
+                            <svg class="w-4 h-4 text-white pointer-events-none" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"></path></svg>
+                        </div>
+                    </div>
+                </div>
+
+                <img id="image-preview" class="max-h-full max-w-full object-contain hidden" alt="Vista previa">
+                <div id="placeholder-text" class="text-slate-600 text-center p-4">
+                    <svg class="w-12 h-12 mx-auto mb-2 opacity-50" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 9a2 2 0 012-2h.93a2 2 0 001.664-.89l.812-1.22A2 2 0 0110.07 4h3.86a2 2 0 011.664.89l.812 1.22A2 2 0 0018.07 7H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V9z"></path><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 13a3 3 0 11-6 0 3 3 0 016 0z"></path></svg>
+                    <p class="text-sm">Esperando imagen...</p>
+                </div>
+            </div>
+            
+            <!-- CONTROLES -->
+            <div class="p-4 bg-slate-900 grid grid-cols-2 md:grid-cols-5 gap-4">
+                <!-- Botón modificado para controlar la cámara por JS -->
+                <button id="btn-camera" class="cursor-pointer bg-cyan-700 hover:bg-cyan-600 text-white py-3 px-4 rounded text-center font-bold transition shadow-[0_0_15px_rgba(8,145,178,0.4)] flex items-center justify-center gap-2">
+                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 9a2 2 0 012-2h.93a2 2 0 001.664-.89l.812-1.22A2 2 0 0110.07 4h3.86a2 2 0 011.664.89l.812 1.22A2 2 0 0018.07 7H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V9z"></path><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 13a3 3 0 11-6 0 3 3 0 016 0z"></path></svg>
+                    <span id="btn-camera-text">INICIAR SISTEMA</span>
+                </button>
+                <!-- Input oculto para fallback -->
+                <input type="file" id="camera-input" accept="image/*" capture="environment" class="hidden">
+
+                <label class="cursor-pointer bg-slate-700 hover:bg-slate-600 text-white py-3 px-4 rounded text-center font-bold transition flex items-center justify-center gap-2">
+                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12"></path></svg>
+                    GALERÍA
+                    <input type="file" id="file-input" accept="image/*" class="hidden">
+                </label>
+
+                <button id="btn-switch-camera" class="cursor-pointer bg-slate-700 hover:bg-slate-600 text-white py-3 px-4 rounded text-center font-bold transition flex items-center justify-center gap-2">
+                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"></path></svg>
+                    CAMBIAR
+                </button>
+
+                <button id="btn-toggle-roi" class="cursor-pointer bg-red-900/40 hover:bg-red-800/60 border border-red-800/50 text-red-200 py-3 px-4 rounded text-center font-bold transition flex items-center justify-center gap-2">
+                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"></path></svg>
+                    ROI
+                </button>
+
+                <button id="btn-toggle-voice" class="cursor-pointer bg-green-600 hover:bg-green-500 text-white py-3 px-4 rounded text-center font-bold transition flex items-center justify-center gap-2">
+                    <svg id="icon-voice-on" class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.536 8.464a5 5 0 010 7.072m2.828-9.9a9 9 0 010 12.728M5.586 15H4a1 1 0 01-1-1v-4a1 1 0 011-1h1.586l4.707-4.707C10.923 3.663 12 4.109 12 5v14c0 .891-1.077 1.337-1.707.707L5.586 15z"></path></svg>
+                    <svg id="icon-voice-off" class="w-6 h-6 hidden" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5.586 15H4a1 1 0 01-1-1v-4a1 1 0 011-1h1.586l4.707-4.707C10.923 3.663 12 4.109 12 5v14c0 .891-1.077 1.337-1.707.707L5.586 15z" clip-rule="evenodd"></path><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 14l2-2m0 0l2-2m-2 2l-2-2m2 2l2 2"></path></svg>
+                </button>
+            </div>
+        </div>
+
+        <!-- CONSOLA DE LOGS -->
+        <div class="mb-6">
+            <div class="flex justify-between items-end mb-2">
+                <h2 class="text-cyan-500 text-sm font-mono uppercase tracking-widest">System Log</h2>
+                <button onclick="clearLogs()" class="text-xs text-slate-500 hover:text-slate-300 underline">Limpiar</button>
+            </div>
+            <div id="console-log" class="terminal-log bg-black border border-slate-700 rounded p-3 h-32 overflow-y-auto font-mono text-xs text-green-500 shadow-inner">
+                <p><span class="text-slate-500">[INIT]</span> Sistema cargado correctamente.</p>
+                <p><span class="text-slate-500">[READY]</span> Esperando entrada de datos...</p>
+            </div>
+        </div>
+
+        <!-- RESULTADOS DEL ANÁLISIS -->
+        <div id="results-area" class="space-y-4">
+            <!-- Los resultados se inyectarán aquí dinámicamente -->
+        </div>
+
+        <!-- HISTORIAL -->
+        <div class="mt-8 border-t border-slate-800 pt-4">
+            <h3 class="text-slate-400 text-sm font-bold mb-4">HISTORIAL DE ESCANEOS</h3>
+            <div id="history-container" class="space-y-2">
+                <!-- Historial inyectado aquí -->
+            </div>
+        </div>
+
+    </main>
+
+    <footer class="bg-slate-950 p-4 text-center text-slate-600 text-xs font-mono">
+        &copy; 2026 Desarrollado por Horacio Mella O
+    </footer>
+
+    <!-- LÓGICA DE LA APLICACIÓN -->
+    <script src="script.js"></script>
+</body>
+</html>
