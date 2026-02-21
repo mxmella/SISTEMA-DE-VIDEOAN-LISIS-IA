@@ -12,9 +12,6 @@ const btnCamera = document.getElementById('btn-camera'); // Nuevo
 const btnCameraText = document.getElementById('btn-camera-text'); // Nuevo
 const btnSwitchCamera = document.getElementById('btn-switch-camera'); // Nuevo botón switch
 const btnToggleVoice = document.getElementById('btn-toggle-voice');
-const btnToggleFilters = document.getElementById('btn-toggle-filters');
-const filterPanel = document.getElementById('filter-panel');
-const filterCheckboxes = document.getElementById('filter-checkboxes');
 const btnToggleRoi = document.getElementById('btn-toggle-roi');
 const confidenceSlider = document.getElementById('confidence-slider');
 const confidenceValue = document.getElementById('confidence-value');
@@ -36,8 +33,6 @@ let lastSpeechTime = 0; // Control de voz: tiempo de última locución
 let isObjectListVoiceEnabled = true; // Voz para lista de objetos activada por defecto
 let isRoiActive = false; // Estado de la Zona de Peligro
 let currentFacingMode = 'environment'; // 'environment' (trasera) o 'user' (frontal)
-let activeFilters = new Set(); // Set para los filtros de objetos activos
-const commonObjects = ['person', 'car', 'cell phone', 'laptop', 'bottle', 'cup', 'chair', 'dog', 'cat', 'book']; // Objetos comunes para filtrar
 let minConfidence = 0.6; // Umbral de confianza inicial (60%)
 let currentResolution = 'medium'; // Resolución por defecto
 // Variables para Drag & Resize
@@ -49,7 +44,6 @@ let initialRoiLeft, initialRoiTop, initialRoiW, initialRoiH;
 // --- Inicialización ---
 document.addEventListener('DOMContentLoaded', async () => {
     setupRoiInteractions(); // Inicializar eventos de ROI
-    populateFilterCheckboxes();
     await loadModel();
 });
 
@@ -81,8 +75,6 @@ btnCamera.addEventListener('click', handleCameraAction); // Nuevo listener
 btnSwitchCamera.addEventListener('click', switchCamera); // Listener para cambiar cámara
 btnToggleVoice.addEventListener('click', toggleVoice);
 btnToggleRoi.addEventListener('click', toggleRoi);
-btnToggleFilters.addEventListener('click', toggleFilterPanel);
-filterCheckboxes.addEventListener('change', updateActiveFilters);
 if (confidenceSlider) {
     confidenceSlider.addEventListener('input', (e) => {
         const val = e.target.value;
@@ -210,14 +202,8 @@ async function predictFrame() {
     // 1. Detectar objetos en el cuadro actual de video
     const predictionsRaw = await objectDetector.detect(videoFeed);
     
-    // Aplicar filtros de confianza y de clase
-    const predictions = predictionsRaw.filter(p => {
-        const scoreMatch = p.score >= minConfidence;
-        // Si no hay filtros activos, solo se comprueba la confianza.
-        // Si hay filtros, se comprueba la confianza Y si la clase está en el Set.
-        const classMatch = activeFilters.size === 0 ? true : activeFilters.has(p.class);
-        return scoreMatch && classMatch;
-    });
+    // Aplicar filtro de confianza
+    const predictions = predictionsRaw.filter(p => p.score >= minConfidence);
     
     // 2. Limpiar canvas anterior
     ctx.clearRect(0, 0, detectionCanvas.width, detectionCanvas.height);
@@ -454,12 +440,8 @@ async function detectStaticImage(imgElement) {
     }
 
     const predictionsRaw = await objectDetector.detect(imgElement);
-    // Aplicar filtros de confianza y de clase
-    const predictions = predictionsRaw.filter(p => {
-        const scoreMatch = p.score >= minConfidence;
-        const classMatch = activeFilters.size === 0 ? true : activeFilters.has(p.class);
-        return scoreMatch && classMatch;
-    });
+    // Aplicar filtro de confianza
+    const predictions = predictionsRaw.filter(p => p.score >= minConfidence);
     
     // Ajustar canvas a la imagen y cambiar modo CSS para alineación perfecta
     detectionCanvas.width = imgElement.naturalWidth;
@@ -546,45 +528,6 @@ function updateSystemStatus(isActive) {
         statusDot.classList.remove('animate-pulse');
         statusText.innerText = "OFFLINE";
         statusText.classList.replace('text-green-400', 'text-red-400');
-    }
-}
-
-// --- Lógica de Filtros ---
-function populateFilterCheckboxes() {
-    if (!filterCheckboxes) return;
-    filterCheckboxes.innerHTML = '';
-    commonObjects.forEach(objectClass => {
-        const color = getColorForClass(objectClass);
-        const translated = translate(objectClass);
-        const label = document.createElement('label');
-        label.className = 'flex items-center gap-2 cursor-pointer text-slate-300 hover:text-white';
-        label.innerHTML = `
-            <input type="checkbox" value="${objectClass}" class="h-4 w-4 rounded border-slate-600 bg-slate-700 cursor-pointer accent-cyan-500 focus:ring-cyan-600">
-            <span class="capitalize font-bold" style="color: ${color};">${translated}</span>
-        `;
-        filterCheckboxes.appendChild(label);
-    });
-}
-
-function toggleFilterPanel() {
-    filterPanel.classList.toggle('hidden');
-    if (filterPanel.classList.contains('hidden')) {
-        btnToggleFilters.classList.remove('bg-cyan-600');
-        btnToggleFilters.classList.add('bg-slate-700');
-    } else {
-        btnToggleFilters.classList.remove('bg-slate-700');
-        btnToggleFilters.classList.add('bg-cyan-600');
-    }
-}
-
-function updateActiveFilters(e) {
-    if (e.target.type === 'checkbox') {
-        if (e.target.checked) {
-            activeFilters.add(e.target.value);
-        } else {
-            activeFilters.delete(e.target.value);
-        }
-        log(`Filtros activos: ${activeFilters.size > 0 ? [...activeFilters].map(translate).join(', ') : 'Ninguno'}`, 'INFO');
     }
 }
 
